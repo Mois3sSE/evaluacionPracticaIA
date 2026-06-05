@@ -7,6 +7,12 @@ class ControladorProyectoIA:
         self.vista = vista
         self.modelo = modelo
         self.matriz = COMPATIBILIDAD
+        self.evento_cancelar = threading.Event()
+        
+    def cancelar_busqueda(self) -> None : 
+        """La vista llamara el metodo si el usuario selecciona 'Cancelar'"""
+        self.evento_cancelar.set()
+        self.vista.mostrar_alerta_educativa("Cancelado","Abortando la ejecucion en progreso",True)
         
     def procesar_peticion(self,problema:str,algoritmo:str) -> None : 
         """Punto de entrada: Se llamara la vsta cuando el usuario de 'Ejecutar'"""
@@ -23,6 +29,7 @@ class ControladorProyectoIA:
             return 
         
         # Si es valido , se arrancara el segundo hilo de trabajo 
+        self.evento_cancelar.clear()
         self.vista.mostrar_alerta_educativa("Ejecutando", config_validacion["mensaje"],False)
         
         hilo_ia = threading.Thread(
@@ -35,11 +42,12 @@ class ControladorProyectoIA:
     def _ejecutar_ia_en_segundo_plano(self, problema:str, algoritmo:str) -> None : 
         """Hilo para correr las demas actvidades"""
         # Invocamos el contrato de la logica
-        resultado = self.modelo.resolver_problemas(problema,algoritmo)
+        resultado = self.modelo.resolver_problema(problema,algoritmo,self.evento_cancelar)
         if resultado["exito"]: 
             for paso in resultado["camino_solucion"]: 
                 self.vista.actualizar_tablero(problema,paso)
                 time.sleep(0.5)
+            self.vista.mostrar_alerta_educativa("Terminado","Solucion dibujada con exito.",False)
         else: 
             self.vista.mostrar_alerta_educativa("Fallo", resultado["mensaje"], True)
             
@@ -53,9 +61,19 @@ class VistaMock:
         print(f"   [VISTA - TABLERO] Animando paso de {problema}: {estado}")
 
 class ModeloMock:
-    def resolver_problema(self, problema, algoritmo):
-        print(f"[MODELO] Calculando {algoritmo} para {problema} (tardará 2 segundos)...")
+    def resolver_problema(self, problema, algoritmo, evento_cancelar):
+        print(f"[MODELO] Calculando {algoritmo} para {problema} ")
         time.sleep(2) # Simulando los cálculos matemáticos pesados
+        for iteracion in range(1,6):
+            if evento_cancelar.is_set():
+                print("[MODELO] Me informan que cancele. Abortando cálculo...")
+                return {
+                    "exito":False,
+                    "mensaje":"El usuario cancelo la busqueda manualmente",
+                    "camino_solucion":[]
+                }
+            print(f"   [MODELO] Explorando nodo {iteracion}...")
+            time.sleep(1)
         return {
             "exito": True,
             "mensaje": "Solución hallada",
@@ -77,6 +95,18 @@ if __name__ == "__main__":
     #Prueba 2: Ejecucion valida 
     print("\n --> PRUEBA 2: Usuario intenta Sokoban con A* ")
     controlador.procesar_peticion("Sokoban","A*")
+    
+    # Lanzamos una búsqueda válida que tardará 5 segundos
+    print("\n --> PRUEBA 3: Usuario intenta Sokoban con A y cancela * ")
+    controlador.procesar_peticion("Sokoban", "A*")
+    
+    # Simulamos que el usuario espera 2 segundos y luego se desespera y presiona "Cancelar"
+    time.sleep(2)
+    print("\n[USUARIO] El algoritmo tarda mucho, voy a presionar CANCELAR...\n")
+    controlador.cancelar_busqueda()
+    
+    # Damos tiempo para ver cómo el hilo muere tranquilamente
+    time.sleep(2)
     
     # Este mensaje demuestra el éxito del Threading:
     # Se imprimirá ANTES de que el algoritmo termine de pensar.
